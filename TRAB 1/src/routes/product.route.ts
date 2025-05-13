@@ -223,42 +223,56 @@ async function productRoutes(fastify: FastifyInstance, options: FastifyPluginOpt
 
 
     // -------- Rota para Atualizar Produto por ID (PUT /:id) --------
+    // src/routes/product.routes.ts
+// ... (restante do código como antes)
+
+    // -------- Rota para Atualizar Produto por ID (PUT /:id) --------
     fastify.put('/:id', { schema: updateProductSchema }, async (request: UpdateProductRequest, reply: FastifyReply) => {
         const { id } = request.params;
-        const updateData = request.body; // Campos a serem atualizados
-
-        // Verificar se o ID é válido antes de criar ObjectId (o schema já valida o formato)
-        // if (!ObjectId.isValid(id)) {
-        //     return reply.code(400).send({ error: 'ID inválido fornecido.' });
-        // }
+        const updateDataFromBody = request.body; // Renomeado para clareza
 
         try {
             const objectId = new ObjectId(id);
 
-            // Monta o objeto para o $set, garantindo que não incluímos _id ou DataCadastro
-            const fieldsToUpdate: { $set: UpdateProductPayload } = { $set: {} };
-            for (const key in updateData) {
-                // Garantir que a chave pertence ao tipo UpdateProductPayload e não é undefined
-                if (Object.prototype.hasOwnProperty.call(updateData, key) && updateData[key as keyof UpdateProductPayload] !== undefined) {
-                     fieldsToUpdate.$set[key as keyof UpdateProductPayload] = updateData[key as keyof UpdateProductPayload];
+            // Inicializa o objeto que será usado no $set
+            const updatePayload: UpdateProductPayload = {};
+
+            // Itera sobre as chaves permitidas em UpdateProductPayload
+            // (Nome, Descrição, Cor, Peso, Tipo, Preço)
+            (Object.keys(updateDataFromBody) as Array<keyof UpdateProductPayload>).forEach(key => {
+                // Verifica se a chave realmente existe no corpo da requisição
+                // e se o valor não é undefined (o schema deve cuidar de tipos errados)
+                if (updateDataFromBody[key] !== undefined) {
+                    // Se a chave for 'Preço', converte para número
+                    if (key === 'Preço') {
+                        const priceValue = Number(updateDataFromBody[key]);
+                        if (!isNaN(priceValue)) {
+                            updatePayload[key] = priceValue;
+                        } else {
+                            // Lida com Preço inválido - pode logar, ignorar, ou retornar erro
+                            request.log.warn(`Valor de Preço inválido fornecido para ${key}: ${updateDataFromBody[key]}`);
+                        }
+                    } else {
+                        // Para outras chaves, atribui diretamente
+                        // O tipo de updateDataFromBody[key] já deve ser compatível com updatePayload[key]
+                        updatePayload[key] = updateDataFromBody[key] as any; // Usar 'as any' aqui é um "escape hatch"
+                                                                           // O ideal seria não precisar, mas se o erro persistir,
+                                                                           // pode ser uma questão de complexidade de tipos.
+                                                                           // Vamos tentar sem 'as any' primeiro.
+                        // TENTATIVA SEM 'as any':
+                        // updatePayload[key] = updateDataFromBody[key];
+                    }
                 }
+            });
+
+
+            if (Object.keys(updatePayload).length === 0) {
+                return reply.code(400).send({ error: 'Nenhum campo válido fornecido para atualização ou campos inválidos.' });
             }
-
-            // Garante que Preço seja número se for fornecido
-            if (fieldsToUpdate.$set.Preço !== undefined) {
-                 fieldsToUpdate.$set.Preço = Number(fieldsToUpdate.$set.Preço);
-            }
-
-
-            // Verifica se há algo para atualizar após a limpeza
-            if (Object.keys(fieldsToUpdate.$set).length === 0) {
-                return reply.code(400).send({ error: 'Nenhum campo válido fornecido para atualização.' });
-            }
-
 
             const result = await productsCollection.updateOne(
-                { _id: objectId }, // Filtro para encontrar o produto
-                fieldsToUpdate     // Operador $set com os campos a serem atualizados
+                { _id: objectId },
+                { $set: updatePayload } // Passa o objeto construído para $set
             );
 
             if (result.matchedCount === 0) {
@@ -266,27 +280,25 @@ async function productRoutes(fastify: FastifyInstance, options: FastifyPluginOpt
             }
 
             if (result.modifiedCount === 0 && result.matchedCount === 1) {
-                 // Encontrou mas nada mudou (dados enviados eram iguais aos existentes)
-                 // Pode retornar 200 com os dados atuais ou 304 Not Modified, mas buscar novamente é mais claro
                  request.log.info(`Produto ${id} encontrado, mas nenhum campo foi modificado.`);
             } else {
                  request.log.info(`Produto ${id} atualizado com sucesso.`);
             }
 
-            // Buscar e retornar o documento atualizado
             const updatedProduct = await productsCollection.findOne({ _id: objectId });
              if (!updatedProduct) {
-                 // Isso não deveria acontecer se matchedCount > 0, mas é uma checagem segura
                   return reply.code(404).send({ error: 'Produto não encontrado após a atualização.' });
              }
 
-            reply.send(updatedProduct); // Retorna o produto completo atualizado
+            reply.send(updatedProduct);
 
         } catch (error) {
             request.log.error(error, `Erro ao atualizar produto com ID: ${id}`);
             reply.code(500).send({ error: 'Erro interno do servidor ao atualizar produto' });
         }
     });
+
+// ... (restante do código)
 
     // -------- Rota para Deletar Produto por ID (DELETE /:id) --------
     fastify.delete('/:id', { schema: { ...idParamSchema, response: { 200: { type: 'object', properties: { message: { type: 'string'}}}, 404: { type: 'object', properties: { error: { type: 'string' }}} } } }, async (request: RequestWithIdParam, reply: FastifyReply) => {
