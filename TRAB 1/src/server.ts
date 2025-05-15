@@ -32,7 +32,7 @@ fastify.register(swaggerUI, {
     deepLinking: false
   },
   staticCSP: true,
-  transformSpecification: (swaggerObject, request, reply) => {
+  transformSpecification: (swaggerObject: any, request: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     return swaggerObject;
   },
   transformSpecificationClone: true
