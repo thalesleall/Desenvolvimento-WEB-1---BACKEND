@@ -1,29 +1,25 @@
-// src/routes/product.routes.ts
+// product.route.ts - Rotas para CRUD de produtos
+// Este arquivo define todas as rotas relacionadas a produtos (criar, listar, buscar, atualizar, deletar).
 
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } from 'fastify';
 import fp from 'fastify-plugin';
 import moment from 'moment';
-// Adicionar ObjectId e Collection
 import { WithId, Collection, ObjectId } from 'mongodb';
-import { Product } from '../interfaces/product.interface'; // Ajuste o caminho se necessário
+import { Product } from '../interfaces/product.interface';
 
-// --- Tipos ---
-// Para o corpo da requisição de criação (sem _id e DataCadastro)
+// --- Tipos auxiliares para requisições ---
+// Payload para criar produto (sem _id e DataCadastro)
 type CreateProductPayload = Omit<Product, '_id' | 'DataCadastro'>;
 type CreateProductRequest = FastifyRequest<{ Body: CreateProductPayload }>;
-
-// Para o corpo da requisição de atualização (todos os campos da criação são opcionais)
-// Usaremos Partial<T> para indicar que os campos do payload são opcionais
+// Payload para atualizar produto (todos os campos opcionais)
 type UpdateProductPayload = Partial<Omit<Product, '_id' | 'DataCadastro'>>;
 type UpdateProductRequest = FastifyRequest<{ Params: { id: string }; Body: UpdateProductPayload }>;
-
-// Para requisições com parâmetro :id ou :identifier
+// Requisições com parâmetro :id ou :identifier
 type RequestWithIdParam = FastifyRequest<{ Params: { id: string } }>;
 type RequestWithIdentifierParam = FastifyRequest<{ Params: { identifier: string } }>;
 
-// --- Schemas ---
-
-// Schema de Criação (igual ao anterior)
+// --- Schemas para validação e documentação Swagger ---
+// Schema de criação de produto
 const createProductSchema = {
     body: {
         type: 'object',
@@ -38,12 +34,11 @@ const createProductSchema = {
         },
         additionalProperties: false,
     },
-    // Resposta 201 pode ser mais completa, incluindo todos os campos do Product
     response: {
         201: {
             type: 'object',
             properties: {
-                _id: { type: 'string' }, // ObjectId é serializado como string
+                _id: { type: 'string' },
                 Nome: { type: 'string' },
                 Descrição: { type: 'string' },
                 Cor: { type: 'string' },
@@ -55,8 +50,7 @@ const createProductSchema = {
         }
     }
 };
-
-// Schema para parâmetros :id (validação de que é uma string com 24 chars hex)
+// Schema para parâmetro :id
 const idParamSchema = {
     params: {
         type: 'object',
@@ -64,13 +58,12 @@ const idParamSchema = {
         properties: {
             id: {
                 type: 'string',
-                pattern: '^[0-9a-fA-F]{24}$' // Regex para validar formato de ObjectId
+                pattern: '^[0-9a-fA-F]{24}$'
             }
         }
     }
 };
-
-// Schema para parâmetros :identifier (apenas valida que é string)
+// Schema para parâmetro :identifier
 const identifierParamSchema = {
     params: {
         type: 'object',
@@ -80,15 +73,12 @@ const identifierParamSchema = {
         }
     }
 }
-
-// Schema para o corpo da requisição de Atualização (PUT)
-// Similar ao de criação, mas nenhum campo é obrigatório no body
-// e não permitimos atualizar _id ou DataCadastro
+// Schema para atualização de produto
 const updateProductSchema = {
-    ...idParamSchema, // Inclui a validação do parâmetro :id
+    ...idParamSchema,
     body: {
         type: 'object',
-        properties: { // Campos que PODEM ser atualizados
+        properties: {
             Nome: { type: 'string', minLength: 1 },
             Descrição: { type: 'string' },
             Cor: { type: 'string' },
@@ -96,12 +86,12 @@ const updateProductSchema = {
             Tipo: { type: 'string' },
             Preço: { type: 'number', minimum: 0 },
         },
-        additionalProperties: false, // Não permitir outros campos
-        minProperties: 1 // Exigir que pelo menos uma propriedade seja enviada para atualização
+        additionalProperties: false,
+        minProperties: 1
     },
-    response: { // Resposta de sucesso para atualização
+    response: {
         200: {
-            type: 'object', // Retorna o objeto atualizado
+            type: 'object',
             properties: {
                  _id: { type: 'string' },
                 Nome: { type: 'string' },
@@ -113,14 +103,13 @@ const updateProductSchema = {
                 DataCadastro: { type: 'string', format: 'date-time' },
             }
         },
-        404: { // Exemplo de resposta para Not Found
+        404: {
              type: 'object',
              properties: { error: { type: 'string' }}
         }
     }
 };
-
-// Schema para resposta de busca (GET por id/nome e GET todos)
+// Schema para resposta de busca de produto
 const productResponseSchema = {
     type: 'object',
     properties: {
@@ -135,16 +124,23 @@ const productResponseSchema = {
     }
 };
 
-// --- Plugin de Rotas ---
-
+/**
+ * Plugin de rotas de produtos.
+ *
+ * Rotas disponíveis:
+ *   POST   /newproduct      - Cria um novo produto
+ *   GET    /products        - Lista todos os produtos
+ *   GET    /:identifier     - Busca produto por ID ou Nome
+ *   PUT    /:id             - Atualiza produto por ID
+ *   DELETE /:id             - Remove produto por ID
+ *
+ * Exemplos de uso estão na documentação Swagger em /docs
+ */
 async function productRoutes(fastify: FastifyInstance, options: FastifyPluginOptions) {
-
-    // Usar Collection<Product> para facilitar o manuseio dos tipos com _id
+    // Coleção de produtos do MongoDB
     const productsCollection: Collection<Product> = fastify.mongo.db.collection('products');
 
-    // -------- Rota para Criar Novo Produto (POST /) --------
-    // Note que o caminho é '/' porque o prefixo '/products' será adicionado no server.ts
-    // Mudei de /newproduct para / para seguir o padrão REST
+    // -------- Rota para Criar Novo Produto (POST /newproduct) --------
     fastify.post('/newproduct', { schema: createProductSchema }, async (request: CreateProductRequest, reply: FastifyReply) => {
         try {
             const productData = request.body;
@@ -172,9 +168,7 @@ async function productRoutes(fastify: FastifyInstance, options: FastifyPluginOpt
         }
     });
 
-    // -------- Rota para Listar Todos os Produtos (GET /) --------
-    // Este também usa '/' relativo ao prefixo /products
-    // Mudei de /products para /
+    // -------- Rota para Listar Todos os Produtos (GET /products) --------
     fastify.get('/products', { schema: { response: { 200: { type: 'array', items: productResponseSchema } } } }, async (request: FastifyRequest, reply: FastifyReply) => {
         try {
             // find().toArray() retorna WithId<Document>[], que é compatível com Product[] se os campos baterem
@@ -221,10 +215,6 @@ async function productRoutes(fastify: FastifyInstance, options: FastifyPluginOpt
         }
     });
 
-
-    // -------- Rota para Atualizar Produto por ID (PUT /:id) --------
-    // src/routes/product.routes.ts
-// ... (restante do código como antes)
 
     // -------- Rota para Atualizar Produto por ID (PUT /:id) --------
     fastify.put('/:id', { schema: updateProductSchema }, async (request: UpdateProductRequest, reply: FastifyReply) => {
@@ -298,8 +288,6 @@ async function productRoutes(fastify: FastifyInstance, options: FastifyPluginOpt
         }
     });
 
-// ... (restante do código)
-
     // -------- Rota para Deletar Produto por ID (DELETE /:id) --------
     fastify.delete('/:id', { schema: { ...idParamSchema, response: { 200: { type: 'object', properties: { message: { type: 'string'}}}, 404: { type: 'object', properties: { error: { type: 'string' }}} } } }, async (request: RequestWithIdParam, reply: FastifyReply) => {
         const { id } = request.params;
@@ -327,6 +315,7 @@ async function productRoutes(fastify: FastifyInstance, options: FastifyPluginOpt
         }
     });
 
-} // Fim da função productRoutes
+}
 
+// Exporta o plugin de rotas usando fastify-plugin
 export default fp(productRoutes);
